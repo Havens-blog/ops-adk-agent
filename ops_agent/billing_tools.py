@@ -101,7 +101,7 @@ def refund_instance(account: str, instance_id: str, product_code: str = "ecs",
         instance_id=instance_id,
         product_code=product_code,
         product_type=product_type if product_type else None,
-        immediately_release="1",  # 立即释放
+        immediately_release="0",  # 1：标识立即释放。0：标识先停机
     )
 
     try:

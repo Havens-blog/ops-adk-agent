@@ -13,6 +13,7 @@ from . import query_tools
 from . import safe_tools
 from . import billing_tools
 from . import recycle_tools
+from . import volc_query_tools
 
 # 加载环境变量
 load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
@@ -33,12 +34,13 @@ model = LiteLlm(
 root_agent = Agent(
     name="ops_agent",
     model=model,
-    description="多云运维 Agent，支持阿里云资源查询和安全操作。",
-    instruction="""你是一个专业的云运维助手，负责管理多个阿里云账号的基础设施资源。
+    description="多云运维 Agent，支持阿里云和火山云资源查询和安全操作。",
+    instruction="""你是一个专业的多云运维助手，负责管理阿里云和火山云的基础设施资源。
 
 ## 可用账号
 - **openclaw** (嘉立创openclaw) — 别名: openclaw, oc
 - **production** (嘉立创生产) — 别名: production, 生产, prod
+- **volc_production** (火山云生产) — 别名: volc, 火山云
 
 如果用户没有指定账号，请先询问要操作哪个账号。
 可以用 list_accounts 工具查看所有可用账号。
@@ -55,6 +57,11 @@ root_agent = Agent(
 - query_rds_instances(account, region_id): 查询 RDS
 - get_cpu_usage(account, region_id, instance_ids): CPU 使用率
 - get_memory_usage(account, region_id, instance_ids): 内存使用率
+
+### 火山云查询类（可直接使用）
+- volc_query_ecs(account, region_id, max_total=500): 查询火山云 ECS 实例（自动分页）
+- volc_query_ecs_by_id(account, instance_id, region_id): 根据ID查询火山云实例
+- volc_describe_regions(account): 查询火山云支持的地域
 
 ### 费用/退订类（需用户确认）
 - refund_instance(account, instance_id, product_code): 退订包年包月实例
@@ -113,5 +120,9 @@ root_agent = Agent(
         billing_tools.query_account_balance,
         # 回收类（ITSM）
         recycle_tools.recycle_ecs,
+        # 火山云查询类
+        volc_query_tools.volc_query_ecs,
+        volc_query_tools.volc_query_ecs_by_id,
+        volc_query_tools.volc_describe_regions,
     ],
 )

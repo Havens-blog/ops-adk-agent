@@ -1,6 +1,6 @@
 """
-多账号 MCP 客户端管理器
-支持多个阿里云账号，每个账号独立的 MCP 连接
+多云 MCP 客户端管理器
+支持阿里云、火山云等多个云厂商，每个账号独立的 MCP 连接
 """
 import json
 import os
@@ -10,31 +10,43 @@ import threading
 
 
 # ============================================================
-# 账号配置
+# 账号配置（每个账号独立的 MCP 端点和 API Key）
 # ============================================================
+_DEFAULT_ALIYUN_MCP = "https://dashscope.aliyuncs.com/api/v1/mcps/alibaba-cloud-ops"
+_DEFAULT_VOLC_MCP = "https://dashscope.aliyuncs.com/api/v1/mcps/mcp-MjJkNDhhZTYyNThj/"
+
 ACCOUNTS = {
     "openclaw": {
         "name": "嘉立创openclaw",
         "aliases": ["openclaw", "嘉立创openclaw", "oc"],
+        "provider": "aliyun",
+        "mcp_url": os.environ.get("ALIYUN_MCP_URL", _DEFAULT_ALIYUN_MCP),
         "api_key": os.environ.get("DASHSCOPE_API_KEY_OPENCLAW", ""),
     },
     "production": {
         "name": "嘉立创生产",
         "aliases": ["production", "生产", "嘉立创生产", "prod"],
+        "provider": "aliyun",
+        "mcp_url": os.environ.get("ALIYUN_MCP_URL", _DEFAULT_ALIYUN_MCP),
         "api_key": os.environ.get("DASHSCOPE_API_KEY_PRODUCTION", ""),
     },
-    # 后续新增账号只需在这里加一条
+    "volc_production": {
+        "name": "火山云生产",
+        "aliases": ["volc", "火山云", "火山云生产", "volc_production"],
+        "provider": "volc",
+        "mcp_url": os.environ.get("VOLC_MCP_URL", _DEFAULT_VOLC_MCP),
+        "api_key": os.environ.get("DASHSCOPE_API_KEY_VOLC", ""),
+    },
 }
-
-MCP_BASE_URL = "https://dashscope.aliyuncs.com/api/v1/mcps/alibaba-cloud-ops"
 
 
 # ============================================================
 # 单个 MCP 连接
 # ============================================================
 class _MCPConnection:
-    def __init__(self, api_key: str):
+    def __init__(self, api_key: str, mcp_url: str):
         self.api_key = api_key
+        self.mcp_url = mcp_url
         self.headers = {"Authorization": f"Bearer {api_key}"}
         self.events = []
         self.session_id = None
@@ -99,7 +111,7 @@ class _MCPConnection:
     def _listen(self):
         self._listen_alive = True
         try:
-            r = requests.get(f"{MCP_BASE_URL}/sse",
+            r = requests.get(f"{self.mcp_url}sse",
                              headers={**self.headers, "Accept": "text/event-stream"},
                              stream=True, timeout=(5, 300))
             buf = ""
@@ -122,7 +134,7 @@ class _MCPConnection:
 
     def _post(self, payload):
         return requests.post(
-            f"{MCP_BASE_URL}/message?sessionId={self.session_id}",
+            f"{self.mcp_url}message?sessionId={self.session_id}",
             headers={**self.headers, "Content-Type": "application/json"},
             json=payload, timeout=10)
 
@@ -138,8 +150,8 @@ class MCPManager:
         """根据账号名获取 MCP 连接"""
         account_key = cls._resolve_account(account)
         if account_key not in cls._connections:
-            api_key = ACCOUNTS[account_key]["api_key"]
-            cls._connections[account_key] = _MCPConnection(api_key)
+            cfg = ACCOUNTS[account_key]
+            cls._connections[account_key] = _MCPConnection(cfg["api_key"], cfg["mcp_url"])
         return cls._connections[account_key]
 
     @classmethod
@@ -151,7 +163,7 @@ class MCPManager:
     @classmethod
     def list_accounts(cls) -> list[dict]:
         """列出所有可用账号"""
-        return [{"key": k, "name": v["name"], "aliases": v["aliases"]}
+        return [{"key": k, "name": v["name"], "provider": v["provider"], "aliases": v["aliases"]}
                 for k, v in ACCOUNTS.items()]
 
     @classmethod
