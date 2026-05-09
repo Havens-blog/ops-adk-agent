@@ -1,0 +1,6 @@
+google-adk[extensions]>=1.3.0
+requests
+python-dotenv
+alibabacloud_bssopenapi20171214
+alibabacloud_ecs20140526
+alibabacloud_tea_openapi
