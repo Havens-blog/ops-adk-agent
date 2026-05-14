@@ -54,50 +54,75 @@ def _parse_api_error(resp: dict) -> str | None:
 _VOLC_PRODUCT_CODES = ["ECS", "ecs", "volc_ecs", "cloud_server"]
 
 
-def volc_refund_instance(account: str, instance_id: str, product_code: str = "") -> dict:
-    """退订火山云包年包月 ECS 实例。
+def volc_refund_instance(account: str, instance_id: str = "", instance_ids: list[str] = [],
+                         product_code: str = "") -> dict:
+    """退订火山云包年包月实例。支持 ECS 及关联资源（云盘等）。
 
-    调用费用中心 UnsubscribeInstance 接口。仅支持符合退订规则的包年包月实例。
-    不传 product_code 时自动尝试常见产品代码。
+    调用费用中心 UnsubscribeInstance 接口。不传 product_code 时自动尝试常见产品代码。
+    注意：实例需要先停机，否则返回 StatusWrong。
 
     Args:
         account: 火山云账号名称，如 volc_production
-        instance_id: 实例ID
+        instance_id: 单个实例ID（和 instance_ids 二选一）
+        instance_ids: 多个实例ID列表（包含 ECS 及关联云盘等）
         product_code: 产品代码（可选，不传自动尝试）
 
     Returns:
         退订结果
     """
-    ctx = {"account": account, "instance_id": instance_id}
+    ids = instance_ids if instance_ids else ([instance_id] if instance_id else [])
+    if not ids:
+        return {"success": False, "error": "请提供 instance_id 或 instance_ids"}
+
+    ctx = {"account": account, "instance_ids": ids}
     codes_to_try = [product_code] if product_code else _VOLC_PRODUCT_CODES
+    results = []
+    all_ok = True
 
-    for code in codes_to_try:
-        try:
-            svc = _get_billing_service(account)
-            resp = _billing_call(svc, "UnsubscribeInstance", {
-                "Product": code,
-                "InstanceID": instance_id,
-            })
-            audit_log("volc_refund", {**ctx, "product_code": code, "response": resp})
+    svc = _get_billing_service(account)
 
-            err_msg = _parse_api_error(resp)
-            if err_msg:
-                if "product code" in err_msg.lower() and codes_to_try.index(code) < len(codes_to_try) - 1:
+    for iid in ids:
+        refunded = False
+        for code in codes_to_try:
+            try:
+                resp = _billing_call(svc, "UnsubscribeInstance", {
+                    "Product": code,
+                    "InstanceID": iid,
+                })
+
+                err_msg = _parse_api_error(resp)
+                if err_msg:
+                    if "product code" in err_msg.lower() and code != codes_to_try[-1]:
+                        continue
+                    audit_log("volc_refund_api_error", {"account": account, "instance_id": iid,
+                              "product_code": code, "error": err_msg})
+                    results.append({"instance_id": iid, "success": False, "error": err_msg, "product_code": code})
+                    all_ok = False
+                    refunded = True
+                    break
+
+                audit_log("volc_refund", {"account": account, "instance_id": iid,
+                          "product_code": code, "response": resp})
+                results.append({"instance_id": iid, "success": True, "product_code": code})
+                refunded = True
+                break
+            except Exception as e:
+                err_str = e.args[0].decode("utf-8") if isinstance(e.args[0], bytes) else str(e)
+                if "product code" in err_str.lower() and code != codes_to_try[-1]:
                     continue
-                audit_log("volc_refund_api_error", {**ctx, "product_code": code, "error": err_msg})
-                return {"success": False, "error": f"退订失败: {err_msg}", **ctx}
+                audit_log("volc_refund_error", {"account": account, "instance_id": iid,
+                          "product_code": code, "error": err_str})
+                results.append({"instance_id": iid, "success": False, "error": err_str, "product_code": code})
+                all_ok = False
+                refunded = True
+                break
 
-            return {"success": True, "instance_id": instance_id, "account": account,
-                    "message": f"退订请求已发送: {instance_id} (Product: {code})", "response": resp}
-        except Exception as e:
-            err_str = e.args[0].decode("utf-8") if isinstance(e.args[0], bytes) else str(e)
-            # 如果是产品代码不匹配，尝试下一个
-            if "product code" in err_str.lower() and code != codes_to_try[-1]:
-                continue
-            audit_log("volc_refund_error", {**ctx, "product_code": code, "error": err_str})
-            return {"success": False, "error": err_str, **ctx}
+        if not refunded:
+            results.append({"instance_id": iid, "success": False, "error": "所有产品代码均不匹配"})
+            all_ok = False
 
-    return {"success": False, "error": "所有产品代码均不匹配", **ctx}
+    return {"success": all_ok, "account": account, "results": results,
+            "message": f"退订完成: {sum(1 for r in results if r['success'])}/{len(results)} 成功"}
 
 
 def volc_query_bill(account: str, start_period: str = "", end_period: str = "",
