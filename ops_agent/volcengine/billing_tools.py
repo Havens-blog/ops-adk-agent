@@ -30,8 +30,8 @@ def _get_billing_service(account: str) -> Service:
     return svc
 
 
-def _json_call(svc, api: str, body: dict) -> dict:
-    """用 json() 方法调用 SDK API（Content-Type: application/json）"""
+def _billing_call(svc, api: str, body: dict) -> dict:
+    """调用 billing SDK API（JSON body）"""
     resp = svc.json(api, {}, json.dumps(body))
     if isinstance(resp, dict):
         return resp
@@ -67,9 +67,9 @@ def volc_refund_instance(account: str, instance_id: str, product_code: str = "ec
     ctx = {"account": account, "instance_id": instance_id}
     try:
         svc = _get_billing_service(account)
-        resp = _json_call(svc, "UnsubscribeInstance", {
-            "InstanceIDs": [instance_id],
-            "ProductCode": product_code,
+        resp = _billing_call(svc, "UnsubscribeInstance", {
+            "Product": product_code,
+            "InstanceID": instance_id,
         })
         audit_log("volc_refund", {**ctx, "response": resp})
 
@@ -107,7 +107,7 @@ def volc_query_bill(account: str, start_period: str = "", end_period: str = "",
             body["BillPeriod"] = start_period
         if end_period:
             body["BillPeriodEnd"] = end_period
-        resp = _json_call(svc, "ListBillDetail", body)
+        resp = _billing_call(svc, "ListBillDetail", body)
         return {"account": account, "data": resp}
     except Exception as e:
         err_str = e.args[0].decode("utf-8") if isinstance(e.args[0], bytes) else str(e)
