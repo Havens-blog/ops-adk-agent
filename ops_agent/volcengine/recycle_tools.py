@@ -80,21 +80,17 @@ def volc_recycle_ecs(instance_id: str, account: str, region_id: str = "cn-beijin
         steps.append({"step": "snapshot", "status": "skipped", "reason": "无可用磁盘或 SDK 未配置"})
         audit_log("volc_recycle_snapshot_skipped", {**ctx, "instance_name": inst_name})
 
-    # ---- Step 5: 释放（包年包月→退订含关联云盘，按量→DeleteInstance） ----
+    # ---- Step 5: 释放（包年包月→退订含关联资源，按量→DeleteInstance） ----
     if charge_type.lower() in ("prepaid", "subscription", "包年包月"):
         try:
-            # 收集 ECS 实例 ID + 关联云盘 ID，一起退订
-            refund_ids = [instance_id]
-            vol_ids = [vol.get("VolumeId", "") for vol in
-                       _query_volumes(svc, region_id, instance_id) if vol.get("VolumeId")]
-            refund_ids.extend(vol_ids)
-            refund_result = billing_tools.volc_refund_instance(
-                account, instance_ids=refund_ids)
+            refund_result = billing_tools.volc_refund_instance(account, instance_id=instance_id)
             if refund_result.get("success"):
+                results_detail = refund_result.get("results", [])
+                related = results_detail[0].get("related_resources") if results_detail else None
                 steps.append({"step": "release", "status": "ok", "route": "billing_refund",
-                              "refund_ids": refund_ids, "results": refund_result.get("results", [])})
+                              "related_resources": related, "results": results_detail})
                 audit_log("volc_recycle_refund", {**ctx, "instance_name": inst_name,
-                          "refund_ids": refund_ids})
+                          "related_resources": related})
                 release_ok = True
             else:
                 steps.append({"step": "release", "status": "error", "route": "billing_refund",

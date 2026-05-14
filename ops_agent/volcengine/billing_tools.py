@@ -55,17 +55,18 @@ _VOLC_PRODUCT_CODES = ["ECS", "ecs", "volc_ecs", "cloud_server"]
 
 
 def volc_refund_instance(account: str, instance_id: str = "", instance_ids: list[str] = [],
-                         product_code: str = "") -> dict:
+                         product_code: str = "", unsubscribe_related: bool = True) -> dict:
     """退订火山云包年包月实例。支持 ECS 及关联资源（云盘等）。
 
-    调用费用中心 UnsubscribeInstance 接口。不传 product_code 时自动尝试常见产品代码。
-    注意：实例需要先停机，否则返回 StatusWrong。
+    调用费用中心 UnsubscribeInstance 接口，默认自动退订关联资源（云盘、镜像等）。
+    不传 product_code 时自动尝试常见产品代码。
 
     Args:
         account: 火山云账号名称，如 volc_production
         instance_id: 单个实例ID（和 instance_ids 二选一）
         instance_ids: 多个实例ID列表（包含 ECS 及关联云盘等）
         product_code: 产品代码（可选，不传自动尝试）
+        unsubscribe_related: 是否同时退订关联资源（云盘、镜像等），默认 True
 
     Returns:
         退订结果
@@ -84,11 +85,15 @@ def volc_refund_instance(account: str, instance_id: str = "", instance_ids: list
     for iid in ids:
         refunded = False
         for code in codes_to_try:
+            body = {
+                "Product": code,
+                "InstanceID": iid,
+            }
+            if unsubscribe_related:
+                body["UnsubscribeRelatedInstance"] = True
+
             try:
-                resp = _billing_call(svc, "UnsubscribeInstance", {
-                    "Product": code,
-                    "InstanceID": iid,
-                })
+                resp = _billing_call(svc, "UnsubscribeInstance", body)
 
                 err_msg = _parse_api_error(resp)
                 if err_msg:
@@ -101,22 +106,20 @@ def volc_refund_instance(account: str, instance_id: str = "", instance_ids: list
                     refunded = True
                     break
 
+                # 提取成功退订的关联资源
+                success_infos = resp.get("Result", {}).get("SuccessInstanceInfos", [])
+                related = [info for info in success_infos if info.get("InstanceID") != iid]
+
                 audit_log("volc_refund", {"account": account, "instance_id": iid,
                           "product_code": code, "response": resp})
-                results.append({"instance_id": iid, "success": True, "product_code": code})
+                results.append({"instance_id": iid, "success": True, "product_code": code,
+                                "related_resources": related if related else None})
                 refunded = True
                 break
             except Exception as e:
                 err_str = e.args[0].decode("utf-8") if isinstance(e.args[0], bytes) else str(e)
                 if "product code" in err_str.lower() and code != codes_to_try[-1]:
                     continue
-                if "instancegroup" in err_str.lower() or "place orders together" in err_str.lower():
-                    audit_log("volc_refund_instancegroup", {"account": account, "instance_id": iid, "error": err_str})
-                    results.append({"instance_id": iid, "success": False, "product_code": code,
-                                    "error": f"实例 {iid} 属于计费实例组，无法单独退订。请在火山云控制台（费用中心→退订管理）操作整组退订"})
-                    all_ok = False
-                    refunded = True
-                    break
                 audit_log("volc_refund_error", {"account": account, "instance_id": iid,
                           "product_code": code, "error": err_str})
                 results.append({"instance_id": iid, "success": False, "error": err_str, "product_code": code})
