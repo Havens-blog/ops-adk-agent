@@ -6,7 +6,7 @@ from datetime import datetime
 
 from ..audit import audit_log
 from ..protection import check_protection
-from .query_tools import _get_ecs_service, _fmt_volc_instances
+from .query_tools import _get_ecs_service, _call, _fmt_volc_instances
 from . import billing_tools
 
 
@@ -29,10 +29,10 @@ def volc_recycle_ecs(instance_id: str, account: str, region_id: str = "cn-beijin
     # ---- Step 1: 查询实例 ----
     try:
         svc = _get_ecs_service(account, region_id)
-        resp = svc.get("DescribeInstances", {
+        resp = _call(svc, "DescribeInstances", {
             "Region": region_id, "InstanceIds.1": instance_id,
         })
-        result = resp.get("Result", {}) if isinstance(resp, dict) else {}
+        result = resp.get("Result", {})
         instances = _fmt_volc_instances(result)
     except Exception as e:
         return {"success": False, "error": str(e), "steps": steps, **ctx}
@@ -60,7 +60,7 @@ def volc_recycle_ecs(instance_id: str, account: str, region_id: str = "cn-beijin
     # ---- Step 3: 停机（如果 Running） ----
     if status.upper() == "RUNNING":
         try:
-            svc.get("StopInstances", {"Region": region_id, "InstanceIds.1": instance_id})
+            _call(svc, "StopInstances", {"Region": region_id, "InstanceIds.1": instance_id})
             steps.append({"step": "stop", "status": "ok"})
             audit_log("volc_recycle_stop", {**ctx, "instance_name": inst_name})
         except Exception as e:
@@ -95,7 +95,7 @@ def volc_recycle_ecs(instance_id: str, account: str, region_id: str = "cn-beijin
             release_ok = False
     else:
         try:
-            svc.get("DeleteInstance", {"Region": region_id, "InstanceId": instance_id})
+            _call(svc, "DeleteInstance", {"Region": region_id, "InstanceId": instance_id})
             steps.append({"step": "release", "status": "ok", "route": "sdk_delete"})
             audit_log("volc_recycle_release", {**ctx, "instance_name": inst_name})
             release_ok = True
@@ -113,10 +113,10 @@ def _create_snapshots(account: str, region_id: str, instance_id: str, instance_n
     """查询实例云盘并创建快照"""
     try:
         svc = _get_ecs_service(account, region_id)
-        vol_resp = svc.get("DescribeVolumes", {
+        vol_resp = _call(svc, "DescribeVolumes", {
             "Region": region_id, "InstanceId": instance_id, "PageSize": 20,
         })
-        result = vol_resp.get("Result", {}) if isinstance(vol_resp, dict) else {}
+        result = vol_resp.get("Result", {})
         volumes = result.get("Volumes", [])
     except Exception:
         return []
@@ -132,12 +132,11 @@ def _create_snapshots(account: str, region_id: str, instance_id: str, instance_n
             continue
         snap_name = f"recycle-{instance_name[:20]}-{vol_id[-6:]}-{ts}"
         try:
-            snap_resp = svc.get("CreateSnapshot", {
+            snap_resp = _call(svc, "CreateSnapshot", {
                 "Region": region_id, "VolumeId": vol_id, "SnapshotName": snap_name,
                 "Description": f"Recycle snapshot for {instance_id}",
             })
-            snap_id = ""
-            snap_result = snap_resp.get("Result", {}) if isinstance(snap_resp, dict) else {}
+            snap_result = snap_resp.get("Result", {})
             snap_id = snap_result.get("SnapshotId", "")
             if snap_id:
                 snapshot_ids.append(snap_id)

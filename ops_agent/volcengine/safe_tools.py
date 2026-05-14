@@ -4,7 +4,7 @@
 """
 from ..audit import audit_log
 from ..protection import check_protection
-from .query_tools import _get_ecs_service
+from .query_tools import _get_ecs_service, _call
 
 
 def volc_stop_instances(account: str, region_id: str, instance_ids: list[str]) -> dict:
@@ -23,7 +23,7 @@ def volc_stop_instances(account: str, region_id: str, instance_ids: list[str]) -
         args = {"Region": region_id}
         for idx, iid in enumerate(instance_ids, 1):
             args[f"InstanceIds.{idx}"] = iid
-        resp = svc.get("StopInstances", args)
+        resp = _call(svc, "StopInstances", args)
         audit_log("volc_stop", {"account": account, "region": region_id, "instances": instance_ids})
         return {"success": True, "message": f"已发送停止指令: {instance_ids}", "response": resp}
     except Exception as e:
@@ -46,7 +46,7 @@ def volc_start_instances(account: str, region_id: str, instance_ids: list[str]) 
         args = {"Region": region_id}
         for idx, iid in enumerate(instance_ids, 1):
             args[f"InstanceIds.{idx}"] = iid
-        resp = svc.get("StartInstances", args)
+        resp = _call(svc, "StartInstances", args)
         audit_log("volc_start", {"account": account, "region": region_id, "instances": instance_ids})
         return {"success": True, "message": f"已发送启动指令: {instance_ids}", "response": resp}
     except Exception as e:
@@ -69,7 +69,7 @@ def volc_reboot_instances(account: str, region_id: str, instance_ids: list[str])
         args = {"Region": region_id}
         for idx, iid in enumerate(instance_ids, 1):
             args[f"InstanceIds.{idx}"] = iid
-        resp = svc.get("RebootInstances", args)
+        resp = _call(svc, "RebootInstances", args)
         audit_log("volc_reboot", {"account": account, "region": region_id, "instances": instance_ids})
         return {"success": True, "message": f"已发送重启指令: {instance_ids}", "response": resp}
     except Exception as e:
@@ -106,7 +106,7 @@ def volc_delete_instance(account: str, region_id: str, instance_id: str,
 
     try:
         svc = _get_ecs_service(account, region_id)
-        resp = svc.get("DeleteInstance", {
+        resp = _call(svc, "DeleteInstance", {
             "Region": region_id, "InstanceId": instance_id,
         })
         audit_log("volc_delete", result)

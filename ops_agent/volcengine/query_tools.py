@@ -2,6 +2,8 @@
 火山云查询工具
 直接调用火山云 ECS OpenAPI（通过 SDK），不走百炼 MCP
 """
+import json
+
 from volcengine.ApiInfo import ApiInfo
 from volcengine.Credentials import Credentials
 from volcengine.base.Service import Service
@@ -31,6 +33,16 @@ def _get_ecs_service(account: str, region_id: str = "cn-beijing") -> Service:
     )
     svc = Service(svc_info, _ECS_APIS)
     return svc
+
+
+def _call(svc, api: str, params: dict) -> dict:
+    """调用 SDK API 并解析 JSON 字符串响应"""
+    resp = svc.get(api, params)
+    if isinstance(resp, dict):
+        return resp
+    if isinstance(resp, str):
+        return json.loads(resp)
+    return {}
 
 
 def _fmt_volc_instances(result: dict) -> list[dict]:
@@ -78,10 +90,10 @@ def volc_query_ecs(account: str, region_id: str = "cn-beijing", max_total: int =
         page = 1
         page_size = 100
         while len(all_instances) < max_total:
-            resp = svc.get("DescribeInstances", {
+            resp = _call(svc, "DescribeInstances", {
                 "Region": region_id, "PageSize": page_size, "PageNumber": page,
             })
-            result = resp.get("Result", {}) if isinstance(resp, dict) else {}
+            result = resp.get("Result", {})
             instances = _fmt_volc_instances(result)
             all_instances.extend(instances)
             total = result.get("TotalCount", 0)
@@ -108,10 +120,10 @@ def volc_query_ecs_by_id(account: str, instance_id: str, region_id: str = "cn-be
     """
     try:
         svc = _get_ecs_service(account, region_id)
-        resp = svc.get("DescribeInstances", {
+        resp = _call(svc, "DescribeInstances", {
             "Region": region_id, "InstanceIds.1": instance_id,
         })
-        result = resp.get("Result", {}) if isinstance(resp, dict) else {}
+        result = resp.get("Result", {})
         instances = _fmt_volc_instances(result)
         if not instances:
             return {"error": f"未找到实例 {instance_id}", "account": account, "region": region_id}
@@ -131,7 +143,7 @@ def volc_describe_regions(account: str) -> dict:
     """
     try:
         svc = _get_ecs_service(account)
-        resp = svc.get("DescribeRegions", {})
+        resp = _call(svc, "DescribeRegions", {})
         return {"account": account, "data": resp}
     except Exception as e:
         return {"error": str(e)}
