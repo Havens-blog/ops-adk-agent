@@ -1,45 +1,68 @@
 """
 火山云查询工具
-调用火山云 ECS MCP（describe_instances 等工具）
-工具名和参数格式与阿里云完全不同
+直接调用火山云 ECS OpenAPI（通过 SDK），不走百炼 MCP
+和 billing_tools.py 用阿里云 SDK 同样的模式
 """
-from .mcp_manager import MCPManager
+import json
+import os
+
+from volcengine.ApiInfo import ApiInfo
+from volcengine.Credentials import Credentials
+from volcengine.base.Service import Service
+from volcengine.ServiceInfo import ServiceInfo
+
+VOLC_ACCOUNTS = {
+    "volc_production": {
+        "name": "火山云生产",
+        "access_key": os.environ.get("VOLC_AK_PRODUCTION", ""),
+        "secret_key": os.environ.get("VOLC_SK_PRODUCTION", ""),
+    },
+}
+
+_ECS_APIS = {
+    "DescribeInstances": ApiInfo("GET", "/", {"Action": "DescribeInstances", "Version": "2020-04-01"}, {}, {}),
+    "DescribeRegions": ApiInfo("GET", "/", {"Action": "DescribeRegions", "Version": "2020-04-01"}, {}, {}),
+}
 
 
-def _fmt_volc_instances(data):
-    """格式化火山云 describe_instances 响应"""
-    content = data.get("content", {})
-    instances = content.get("instances", []) if isinstance(content, dict) else []
-    if not instances:
-        # 尝试直接从 data 取（不同 MCP 可能返回格式不同）
-        instances = data.get("instances", [])
-    result = []
+def _get_ecs_service(account: str, region_id: str = "cn-beijing") -> Service:
+    cfg = VOLC_ACCOUNTS.get(account)
+    if not cfg or not cfg["access_key"]:
+        raise ValueError(f"火山云账号 {account} 未配置 AK/SK，请设置 VOLC_AK_PRODUCTION 和 VOLC_SK_PRODUCTION")
+    svc_info = ServiceInfo(
+        "open.volcengineapi.com", {"Accept": "application/json"},
+        Credentials(cfg["access_key"], cfg["secret_key"], "ecs", region_id), 10, 10,
+    )
+    svc = Service(svc_info, _ECS_APIS)
+    return svc
+
+
+def _fmt_volc_instances(result: dict) -> list[dict]:
+    instances = result.get("Instances", [])
+    out = []
     for i in instances:
-        result.append({
-            "name": i.get("instanceName", ""),
-            "id": i.get("instanceId", ""),
-            "status": i.get("status", ""),
-            "type": i.get("instanceTypeId", ""),
-            "cpu": i.get("cpu", ""),
-            "memory_gb": i.get("memory", ""),
-            "os": i.get("imageId", ""),
-            "zone": i.get("zoneId", ""),
-            "private_ip": ", ".join(i.get("networkInterfaces", [{}])[0].get("primaryIp", {}).get("ip", []) if i.get("networkInterfaces") else []),
-            "public_ip": ", ".join(i.get("eipAddress", {}).get("ip", []) if isinstance(i.get("eipAddress"), dict) else []),
-            "charge": i.get("instanceChargeType", ""),
-            "created": i.get("createdAt", ""),
-            "expired": i.get("expiredAt", ""),
+        nics = i.get("NetworkInterfaces", [])
+        private_ip = nics[0].get("PrimaryIpAddress", "") if nics else ""
+        eip = i.get("EipAddress")
+        public_ip = eip.get("IpAddress", "") if isinstance(eip, dict) else ""
+        out.append({
+            "name": i.get("InstanceName", ""),
+            "id": i.get("InstanceId", ""),
+            "status": i.get("Status", ""),
+            "type": i.get("InstanceTypeId", ""),
+            "cpu": i.get("Cpus", ""),
+            "memory_mb": i.get("MemorySize", ""),
+            "os": i.get("OsName", ""),
+            "zone": i.get("ZoneId", ""),
+            "private_ip": private_ip,
+            "public_ip": public_ip,
+            "charge": i.get("InstanceChargeType", ""),
+            "created": i.get("CreatedAt", ""),
+            "expired": i.get("ExpiredAt", ""),
+            "tags": {t["Key"]: t["Value"] for t in i.get("Tags", [])},
+            "deletion_protection": i.get("DeletionProtection", False),
         })
-    return result
-
-
-def _extract_page_info(data):
-    """从火山云响应中提取分页信息"""
-    content = data.get("content", {}) if isinstance(data.get("content"), dict) else {}
-    total_count = content.get("totalCount", 0)
-    page_num = content.get("pageNumber", 1)
-    page_size = content.get("pageSize", 20)
-    return total_count, page_num, page_size
+    return out
 
 
 def volc_query_ecs(account: str, region_id: str = "cn-beijing", max_total: int = 500) -> dict:
@@ -54,26 +77,25 @@ def volc_query_ecs(account: str, region_id: str = "cn-beijing", max_total: int =
         实例列表
     """
     try:
+        svc = _get_ecs_service(account, region_id)
         all_instances = []
-        page_num = 1
+        page = 1
         page_size = 100
         while len(all_instances) < max_total:
-            data = MCPManager.call(account, "describe_instances",
-                                   {"region": region_id, "needNum": page_size},
-                                   timeout=40)
-            if not data:
-                break
-            instances = _fmt_volc_instances(data)
+            resp = svc.get("DescribeInstances", {
+                "Region": region_id, "PageSize": page_size, "PageNumber": page,
+            })
+            result = resp.get("Result", {}) if isinstance(resp, dict) else {}
+            instances = _fmt_volc_instances(result)
             all_instances.extend(instances)
-            # 检查是否还有更多数据
-            total_count, _, _ = _extract_page_info(data)
-            if total_count <= len(all_instances) or not instances:
+            total = result.get("TotalCount", 0)
+            if not instances or len(all_instances) >= total:
                 break
-            page_num += 1
+            page += 1
         if not all_instances:
             return {"error": "查询无响应或无实例", "account": account, "region": region_id}
         return {"account": account, "region": region_id, "total": len(all_instances), "instances": all_instances}
-    except ValueError as e:
+    except Exception as e:
         return {"error": str(e)}
 
 
@@ -89,16 +111,17 @@ def volc_query_ecs_by_id(account: str, instance_id: str, region_id: str = "cn-be
         实例详情
     """
     try:
-        data = MCPManager.call(account, "describe_instances",
-                               {"region": region_id, "instanceIds": [instance_id]}, timeout=40)
-    except ValueError as e:
+        svc = _get_ecs_service(account, region_id)
+        resp = svc.get("DescribeInstances", {
+            "Region": region_id, "InstanceIds.1": instance_id,
+        })
+        result = resp.get("Result", {}) if isinstance(resp, dict) else {}
+        instances = _fmt_volc_instances(result)
+        if not instances:
+            return {"error": f"未找到实例 {instance_id}", "account": account, "region": region_id}
+        return {"account": account, "region": region_id, **instances[0]}
+    except Exception as e:
         return {"error": str(e)}
-    if not data:
-        return {"error": "查询无响应", "account": account, "region": region_id}
-    instances = _fmt_volc_instances(data)
-    if not instances:
-        return {"error": f"未找到实例 {instance_id}", "account": account, "region": region_id}
-    return {"account": account, "region": region_id, **instances[0]}
 
 
 def volc_describe_regions(account: str) -> dict:
@@ -111,10 +134,8 @@ def volc_describe_regions(account: str) -> dict:
         地域列表
     """
     try:
-        data = MCPManager.call(account, "describe_regions",
-                               {"region": "cn-beijing"}, timeout=40)
-    except ValueError as e:
+        svc = _get_ecs_service(account)
+        resp = svc.get("DescribeRegions", {})
+        return {"account": account, "data": resp}
+    except Exception as e:
         return {"error": str(e)}
-    if not data:
-        return {"error": "查询无响应"}
-    return {"account": account, "data": data}

@@ -13,7 +13,7 @@ import threading
 # 账号配置（每个账号独立的 MCP 端点和 API Key）
 # ============================================================
 _DEFAULT_ALIYUN_MCP = "https://dashscope.aliyuncs.com/api/v1/mcps/alibaba-cloud-ops"
-_DEFAULT_VOLC_MCP = "https://dashscope.aliyuncs.com/api/v1/mcps/mcp-MjJkNDhhZTYyNThj/"
+_DEFAULT_VOLC_MCP = ""
 
 ACCOUNTS = {
     "openclaw": {
