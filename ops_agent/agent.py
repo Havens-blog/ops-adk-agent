@@ -57,7 +57,8 @@ root_agent = Agent(
 
 ### 火山云查询类（可直接使用）
 - volc_query_ecs(account, region_id, max_total=500): 查询火山云 ECS 实例（自动分页）
-- volc_query_ecs_by_id(account, instance_id, region_id): 根据ID查询火山云实例
+- volc_query_ecs_by_id(account, instance_id, region_id): 根据ID���询火山云实例
+- volc_query_ecs_by_ip(account, ip, region_id?): 根据IP查询火山云实例，不传region_id自动搜索所有地域
 - volc_describe_regions(account): 查询火山云支持的地域
 
 ### 火山云操作类（需用户确认）
@@ -129,6 +130,7 @@ root_agent = Agent(
         # 火山云
         volcengine.query_tools.volc_query_ecs,
         volcengine.query_tools.volc_query_ecs_by_id,
+        volcengine.query_tools.volc_query_ecs_by_ip,
         volcengine.query_tools.volc_describe_regions,
         volcengine.safe_tools.volc_stop_instances,
         volcengine.safe_tools.volc_start_instances,

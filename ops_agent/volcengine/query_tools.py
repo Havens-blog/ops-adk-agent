@@ -131,6 +131,46 @@ def volc_query_ecs_by_id(account: str, instance_id: str, region_id: str = "cn-be
         return {"error": str(e)}
 
 
+VOLC_REGIONS = ["cn-beijing", "cn-beijing2", "cn-shanghai", "cn-guangzhou",
+                "cn-hongkong", "ap-southeast-1", "ap-southeast-3"]
+
+
+def volc_query_ecs_by_ip(account: str, ip: str, region_id: str = "") -> dict:
+    """根据 IP 查询火山云 ECS 实例。支持内网 IP 和公网 IP。
+
+    不指定 region_id 时自动搜索所有常用地域。
+
+    Args:
+        account: 火山云账号名称
+        ip: IP 地址（内网或公网）
+        region_id: 地域ID（可选，不传则搜索所有地域）
+
+    Returns:
+        实例详情
+    """
+    regions = [region_id] if region_id else VOLC_REGIONS
+    for reg in regions:
+        try:
+            svc = _get_ecs_service(account, reg)
+            page = 1
+            while True:
+                resp = _call(svc, "DescribeInstances", {
+                    "Region": reg, "PageSize": 100, "PageNumber": page,
+                })
+                result = resp.get("Result", {})
+                instances = _fmt_volc_instances(result)
+                for inst in instances:
+                    if inst.get("private_ip") == ip or inst.get("public_ip") == ip:
+                        return {"account": account, "region": reg, **inst}
+                if not instances or len(instances) < 100:
+                    break
+                page += 1
+        except Exception:
+            continue
+
+    return {"error": f"所有地域均未找到 IP={ip} 的实例", "account": account}
+
+
 def volc_describe_regions(account: str) -> dict:
     """查询火山云 ECS 支持的地域列表。
 
