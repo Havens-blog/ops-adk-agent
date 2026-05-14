@@ -1,26 +1,14 @@
 """
-ECS 回收工具 - ITSM 触发的一键回收流程
-包含：查询 → 保护校验 → 停机 → 打快照 → 退订/释放 → 审计日志
+阿里云 ECS 回收工具 - ITSM 触发的一键回收流程
+查询 → 保护校验 → 停机 → 打快照 → 退订/释放 → 审计日志
 """
-import json
-import os
 from datetime import datetime
 
-from .mcp_manager import MCPManager
-from . import safe_tools
+from ..mcp_manager import MCPManager
+from ..audit import audit_log
+from ..protection import check_protection
+from ..accounts import SDK_CREDENTIALS
 from . import billing_tools
-
-# 多账号 AccessKey（复用 billing_tools 的配置，快照/磁盘查询走 ECS SDK）
-_ECS_ACCOUNTS = {
-    "openclaw": {
-        "access_key": os.environ.get("ALIYUN_AK_OPENCLAW", ""),
-        "secret_key": os.environ.get("ALIYUN_SK_OPENCLAW", ""),
-    },
-    "production": {
-        "access_key": os.environ.get("ALIYUN_AK_PRODUCTION", ""),
-        "secret_key": os.environ.get("ALIYUN_SK_PRODUCTION", ""),
-    },
-}
 
 
 def _get_ecs_client(account: str, region_id: str):
@@ -31,31 +19,16 @@ def _get_ecs_client(account: str, region_id: str):
     except ImportError:
         return None
 
-    account_key = billing_tools.BILLING_ACCOUNTS.get(account)
-    if not account_key:
-        # 尝试别名解析
-        for k, v in billing_tools.BILLING_ACCOUNTS.items():
-            if account.lower() in [k] + [a.lower() for a in v.get("aliases", [])]:
-                account_key = v
-                break
-    if not account_key or not account_key.get("access_key"):
+    cfg = SDK_CREDENTIALS.get(account)
+    if not cfg or not cfg.get("access_key"):
         return None
 
     config = Config(
-        access_key_id=account_key["access_key"],
-        access_key_secret=account_key["secret_key"],
+        access_key_id=cfg["access_key"],
+        access_key_secret=cfg["secret_key"],
         endpoint=f"ecs.{region_id}.aliyuncs.com",
     )
     return Client(config)
-
-
-def _audit_log(action: str, detail: dict):
-    log_dir = os.path.join(os.path.dirname(__file__), "..", "audit_logs")
-    os.makedirs(log_dir, exist_ok=True)
-    entry = {"time": datetime.now().isoformat(), "action": action, **detail}
-    filepath = os.path.join(log_dir, f"audit_{datetime.now():%Y%m%d}.jsonl")
-    with open(filepath, "a", encoding="utf-8") as f:
-        f.write(json.dumps(entry, ensure_ascii=False) + "\n")
 
 
 def recycle_ecs(instance_id: str, account: str, region_id: str, ticket_id: str = "") -> dict:
@@ -98,10 +71,10 @@ def recycle_ecs(instance_id: str, account: str, region_id: str, ticket_id: str =
                   "instance_status": status, "charge_type": charge_type})
 
     # ---- Step 2: 保护规则校验 ----
-    protected = safe_tools._check_protection(inst_name)
+    protected = check_protection(inst_name)
     if protected:
         steps.append({"step": "protection", "status": "blocked", "reason": f"匹配保护规则: {protected}"})
-        _audit_log("recycle_blocked", {**ctx, "instance_name": inst_name, "reason": f"protected: {protected}"})
+        audit_log("recycle_blocked", {**ctx, "instance_name": inst_name, "reason": f"protected: {protected}"})
         return {"success": False, "blocked": True,
                 "error": f"实例 [{inst_name}] 匹配保护规则 [{protected}]，禁止回收", "steps": steps, **ctx}
 
@@ -114,7 +87,7 @@ def recycle_ecs(instance_id: str, account: str, region_id: str, ticket_id: str =
                                         {"RegionId": region_id, "InstanceIds": [instance_id]}, timeout=35)
             if stop_data:
                 steps.append({"step": "stop", "status": "ok"})
-                _audit_log("recycle_stop", {**ctx, "instance_name": inst_name})
+                audit_log("recycle_stop", {**ctx, "instance_name": inst_name})
             else:
                 steps.append({"step": "stop", "status": "warn", "reason": "停机指令无响应，继续执行"})
         except Exception as e:
@@ -126,7 +99,7 @@ def recycle_ecs(instance_id: str, account: str, region_id: str, ticket_id: str =
     snapshot_ids = _create_snapshots(account, region_id, instance_id, inst_name)
     if snapshot_ids:
         steps.append({"step": "snapshot", "status": "ok", "snapshot_ids": snapshot_ids})
-        _audit_log("recycle_snapshot", {**ctx, "instance_name": inst_name, "snapshot_ids": snapshot_ids})
+        audit_log("recycle_snapshot", {**ctx, "instance_name": inst_name, "snapshot_ids": snapshot_ids})
     else:
         steps.append({"step": "snapshot", "status": "skipped", "reason": "无可用磁盘或 SDK 未配置"})
 
@@ -140,7 +113,7 @@ def recycle_ecs(instance_id: str, account: str, region_id: str, ticket_id: str =
         else:
             steps.append({"step": "release", "status": "error", "route": route,
                           "error": refund_result.get("message", refund_result.get("error", ""))})
-        _audit_log("recycle_release", {**ctx, "instance_name": inst_name, "route": route, "result": refund_result})
+        audit_log("recycle_release", {**ctx, "instance_name": inst_name, "route": route, "result": refund_result})
         release_ok = refund_result.get("success", False)
     else:
         try:
@@ -158,7 +131,7 @@ def recycle_ecs(instance_id: str, account: str, region_id: str, ticket_id: str =
             else:
                 steps.append({"step": "release", "status": "error", "route": route, "error": "释放无响应"})
                 release_ok = False
-            _audit_log("recycle_release", {**ctx, "instance_name": inst_name, "route": route})
+            audit_log("recycle_release", {**ctx, "instance_name": inst_name, "route": route})
         except ValueError as e:
             steps.append({"step": "release", "status": "error", "route": "mcp_delete", "error": str(e)})
             release_ok = False
@@ -179,7 +152,6 @@ def _create_snapshots(account: str, region_id: str, instance_id: str, instance_n
     except ImportError:
         return []
 
-    # 查询磁盘
     try:
         disk_resp = client.describe_disks(ecs_models.DescribeDisksRequest(
             region_id=region_id, instance_id=instance_id, page_size=20,
@@ -191,7 +163,6 @@ def _create_snapshots(account: str, region_id: str, instance_id: str, instance_n
     if not disks:
         return []
 
-    # 逐盘创建快照
     snapshot_ids = []
     ts = datetime.now().strftime("%Y%m%d%H%M")
     for disk in disks:

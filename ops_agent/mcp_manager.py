@@ -3,41 +3,11 @@
 支持阿里云、火山云等多个云厂商，每个账号独立的 MCP 连接
 """
 import json
-import os
 import requests
 import time
 import threading
 
-
-# ============================================================
-# 账号配置（每个账号独立的 MCP 端点和 API Key）
-# ============================================================
-_DEFAULT_ALIYUN_MCP = "https://dashscope.aliyuncs.com/api/v1/mcps/alibaba-cloud-ops"
-_DEFAULT_VOLC_MCP = ""
-
-ACCOUNTS = {
-    "openclaw": {
-        "name": "嘉立创openclaw",
-        "aliases": ["openclaw", "嘉立创openclaw", "oc"],
-        "provider": "aliyun",
-        "mcp_url": os.environ.get("ALIYUN_MCP_URL", _DEFAULT_ALIYUN_MCP),
-        "api_key": os.environ.get("DASHSCOPE_API_KEY_OPENCLAW", ""),
-    },
-    "production": {
-        "name": "嘉立创生产",
-        "aliases": ["production", "生产", "嘉立创生产", "prod"],
-        "provider": "aliyun",
-        "mcp_url": os.environ.get("ALIYUN_MCP_URL", _DEFAULT_ALIYUN_MCP),
-        "api_key": os.environ.get("DASHSCOPE_API_KEY_PRODUCTION", ""),
-    },
-    "volc_production": {
-        "name": "火山云生产",
-        "aliases": ["volc", "火山云", "火山云生产", "volc_production"],
-        "provider": "volc",
-        "mcp_url": os.environ.get("VOLC_MCP_URL", _DEFAULT_VOLC_MCP),
-        "api_key": os.environ.get("DASHSCOPE_API_KEY_VOLC", ""),
-    },
-}
+from .accounts import MCP_ACCOUNTS as ACCOUNTS
 
 
 # ============================================================

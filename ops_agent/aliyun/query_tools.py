@@ -1,8 +1,7 @@
 """
-查询类工具 - 支持多账号
-每个工具都有 account 参数，LLM 根据用户意图自动选择账号
+阿里云查询工具 - 通过 MCP 调用
 """
-from .mcp_manager import MCPManager
+from ..mcp_manager import MCPManager
 
 
 def _fmt_instances(data):
@@ -70,7 +69,6 @@ COMMON_REGIONS = ["cn-shenzhen", "cn-hangzhou", "cn-beijing", "cn-shanghai",
 
 
 def _enrich_instance(data):
-    """从原始 MCP 响应中提取格式化实例 + 详情字段"""
     instances = _fmt_instances(data)
     if not instances:
         return None

@@ -1,23 +1,13 @@
 """
 火山云查询工具
 直接调用火山云 ECS OpenAPI（通过 SDK），不走百炼 MCP
-和 billing_tools.py 用阿里云 SDK 同样的模式
 """
-import json
-import os
-
 from volcengine.ApiInfo import ApiInfo
 from volcengine.Credentials import Credentials
 from volcengine.base.Service import Service
 from volcengine.ServiceInfo import ServiceInfo
 
-VOLC_ACCOUNTS = {
-    "volc_production": {
-        "name": "火山云生产",
-        "access_key": os.environ.get("VOLC_AK_PRODUCTION", ""),
-        "secret_key": os.environ.get("VOLC_SK_PRODUCTION", ""),
-    },
-}
+from ..accounts import SDK_CREDENTIALS
 
 _ECS_APIS = {
     "DescribeInstances": ApiInfo("GET", "/", {"Action": "DescribeInstances", "Version": "2020-04-01"}, {}, {}),
@@ -32,7 +22,7 @@ _ECS_APIS = {
 
 
 def _get_ecs_service(account: str, region_id: str = "cn-beijing") -> Service:
-    cfg = VOLC_ACCOUNTS.get(account)
+    cfg = SDK_CREDENTIALS.get(account)
     if not cfg or not cfg["access_key"]:
         raise ValueError(f"火山云账号 {account} 未配置 AK/SK，请设置 VOLC_AK_PRODUCTION 和 VOLC_SK_PRODUCTION")
     svc_info = ServiceInfo(

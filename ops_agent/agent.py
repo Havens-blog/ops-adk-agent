@@ -9,14 +9,8 @@ from dotenv import load_dotenv
 from google.adk.agents import Agent
 from google.adk.models.lite_llm import LiteLlm
 
-from . import query_tools
-from . import safe_tools
-from . import billing_tools
-from . import recycle_tools
-from . import volc_query_tools
-from . import volc_safe_tools
-from . import volc_billing_tools
-from . import volc_recycle_tools
+from . import aliyun
+from . import volcengine
 
 # 加载环境变量
 load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
@@ -114,41 +108,34 @@ root_agent = Agent(
 - 包年包月删除要提醒费用风险
 """,
     tools=[
-        # 账号管理
-        query_tools.list_accounts,
-        # 查询类
-        query_tools.query_ecs_instances,
-        query_tools.query_ecs_by_id,
-        query_tools.query_ecs_by_ip,
-        query_tools.query_vpcs,
-        query_tools.query_security_groups,
-        query_tools.query_rds_instances,
-        query_tools.get_cpu_usage,
-        query_tools.get_memory_usage,
-        # 操作类（带安全管控）
-        safe_tools.safe_delete_ecs,
-        safe_tools.safe_stop_ecs,
-        safe_tools.safe_start_ecs,
-        safe_tools.safe_reboot_ecs,
-        # 费用/退订类
-        billing_tools.refund_instance,
-        billing_tools.query_available_instances,
-        billing_tools.query_account_balance,
-        # 回收类（ITSM）
-        recycle_tools.recycle_ecs,
-        # 火山云查询类
-        volc_query_tools.volc_query_ecs,
-        volc_query_tools.volc_query_ecs_by_id,
-        volc_query_tools.volc_describe_regions,
-        # 火山云操作类（带安全管控）
-        volc_safe_tools.volc_stop_instances,
-        volc_safe_tools.volc_start_instances,
-        volc_safe_tools.volc_reboot_instances,
-        volc_safe_tools.volc_delete_instance,
-        # 火山云费用/退订类
-        volc_billing_tools.volc_refund_instance,
-        volc_billing_tools.volc_query_bill,
-        # 火山云回收类（ITSM）
-        volc_recycle_tools.volc_recycle_ecs,
+        # 阿里云
+        aliyun.query_tools.list_accounts,
+        aliyun.query_tools.query_ecs_instances,
+        aliyun.query_tools.query_ecs_by_id,
+        aliyun.query_tools.query_ecs_by_ip,
+        aliyun.query_tools.query_vpcs,
+        aliyun.query_tools.query_security_groups,
+        aliyun.query_tools.query_rds_instances,
+        aliyun.query_tools.get_cpu_usage,
+        aliyun.query_tools.get_memory_usage,
+        aliyun.safe_tools.safe_delete_ecs,
+        aliyun.safe_tools.safe_stop_ecs,
+        aliyun.safe_tools.safe_start_ecs,
+        aliyun.safe_tools.safe_reboot_ecs,
+        aliyun.billing_tools.refund_instance,
+        aliyun.billing_tools.query_available_instances,
+        aliyun.billing_tools.query_account_balance,
+        aliyun.recycle_tools.recycle_ecs,
+        # 火山云
+        volcengine.query_tools.volc_query_ecs,
+        volcengine.query_tools.volc_query_ecs_by_id,
+        volcengine.query_tools.volc_describe_regions,
+        volcengine.safe_tools.volc_stop_instances,
+        volcengine.safe_tools.volc_start_instances,
+        volcengine.safe_tools.volc_reboot_instances,
+        volcengine.safe_tools.volc_delete_instance,
+        volcengine.billing_tools.volc_refund_instance,
+        volcengine.billing_tools.volc_query_bill,
+        volcengine.recycle_tools.volc_recycle_ecs,
     ],
 )

@@ -1,27 +1,11 @@
 """
 阿里云费用/退订工具
-直接调用阿里云 OpenAPI（通过 SDK），不走 MCP
-支持多账号
+直接调用阿里云 BSS OpenAPI（通过 SDK）
 """
-import json
-import os
 from datetime import datetime
 
-# 多账号 AccessKey 配置
-# 注意：这里需要阿里云主账号或有 BSS 权限的 RAM 用户的 AK/SK
-# 和百炼 MCP 的 API Key 不同
-BILLING_ACCOUNTS = {
-    "openclaw": {
-        "name": "嘉立创openclaw",
-        "access_key": os.environ.get("ALIYUN_AK_OPENCLAW", ""),
-        "secret_key": os.environ.get("ALIYUN_SK_OPENCLAW", ""),
-    },
-    "production": {
-        "name": "嘉立创生产",
-        "access_key": os.environ.get("ALIYUN_AK_PRODUCTION", ""),
-        "secret_key": os.environ.get("ALIYUN_SK_PRODUCTION", ""),
-    },
-}
+from ..audit import audit_log
+from ..accounts import SDK_CREDENTIALS
 
 
 def _get_bss_client(account: str):
@@ -35,20 +19,19 @@ def _get_bss_client(account: str):
         )
 
     account_lower = account.lower().strip()
-    # 别名解析
     alias_map = {"oc": "openclaw", "生产": "production", "prod": "production",
                  "嘉立创openclaw": "openclaw", "嘉立创生产": "production"}
     account_key = alias_map.get(account_lower, account_lower)
 
-    if account_key not in BILLING_ACCOUNTS:
-        available = ", ".join(f"{v['name']}({k})" for k, v in BILLING_ACCOUNTS.items())
+    if account_key not in SDK_CREDENTIALS:
+        available = ", ".join(f"{v['name']}({k})" for k, v in SDK_CREDENTIALS.items())
         raise ValueError(f"未知账号: {account}。可用: {available}")
 
-    cfg = BILLING_ACCOUNTS[account_key]
+    cfg = SDK_CREDENTIALS[account_key]
     if not cfg["access_key"] or not cfg["secret_key"]:
         raise RuntimeError(
             f"账号 {cfg['name']} 的 AccessKey 未配置。"
-            f"请在 .env 中设置 ALIYUN_AK_{account_key.upper()} 和 ALIYUN_SK_{account_key.upper()}"
+            f"请在 .env 中设置对应的环境变量"
         )
 
     config = Config(
@@ -58,19 +41,6 @@ def _get_bss_client(account: str):
     )
     return Client(config), cfg["name"]
 
-
-def _audit_log(action: str, detail: dict):
-    log_dir = os.path.join(os.path.dirname(__file__), "..", "audit_logs")
-    os.makedirs(log_dir, exist_ok=True)
-    entry = {"time": datetime.now().isoformat(), "action": action, **detail}
-    filepath = os.path.join(log_dir, f"audit_{datetime.now():%Y%m%d}.jsonl")
-    with open(filepath, "a", encoding="utf-8") as f:
-        f.write(json.dumps(entry, ensure_ascii=False) + "\n")
-
-
-# ============================================================
-# ADK 工具函数
-# ============================================================
 
 def refund_instance(account: str, instance_id: str, product_code: str = "ecs",
                     product_type: str = "") -> dict:
@@ -101,7 +71,7 @@ def refund_instance(account: str, instance_id: str, product_code: str = "ecs",
         instance_id=instance_id,
         product_code=product_code,
         product_type=product_type if product_type else None,
-        immediately_release="0",  # 1：标识立即释放。0：标识先停机
+        immediately_release="0",
     )
 
     try:
@@ -117,7 +87,7 @@ def refund_instance(account: str, instance_id: str, product_code: str = "ecs",
             "request_id": body.request_id if body else "",
             "order_id": str(body.data.order_id) if body and body.data else "",
         }
-        _audit_log("refund_instance", result)
+        audit_log("refund_instance", result)
 
         if body and body.success:
             return {**result, "message": f"✅ 实例 {instance_id} 退订成功，退款订单号: {result['order_id']}"}
@@ -126,7 +96,7 @@ def refund_instance(account: str, instance_id: str, product_code: str = "ecs",
 
     except Exception as e:
         error_result = {"account": account_name, "instance_id": instance_id, "error": str(e)}
-        _audit_log("refund_error", error_result)
+        audit_log("refund_error", error_result)
         return error_result
 
 

@@ -1,28 +1,18 @@
 """
 火山云 ECS 回收工具 - ITSM 触发的一键回收流程
-直接调用火山云 ECS OpenAPI（通过 SDK）
-流程：查询 → 保护校验 → 停机 → 打快照 → 释放 → 审计日志
+查询 → 保护校验 → 停机 → 打快照 → 退订/释放 → 审计日志
 """
-import json
-import os
 from datetime import datetime
 
-from . import safe_tools
-from .volc_query_tools import _get_ecs_service, _fmt_volc_instances, VOLC_ACCOUNTS
-
-
-def _audit_log(action: str, detail: dict):
-    log_dir = os.path.join(os.path.dirname(__file__), "..", "audit_logs")
-    os.makedirs(log_dir, exist_ok=True)
-    entry = {"time": datetime.now().isoformat(), "action": action, **detail}
-    filepath = os.path.join(log_dir, f"audit_{datetime.now():%Y%m%d}.jsonl")
-    with open(filepath, "a", encoding="utf-8") as f:
-        f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+from ..audit import audit_log
+from ..protection import check_protection
+from .query_tools import _get_ecs_service, _fmt_volc_instances
+from . import billing_tools
 
 
 def volc_recycle_ecs(instance_id: str, account: str, region_id: str = "cn-beijing",
                      ticket_id: str = "") -> dict:
-    """一键回收火山云 ECS 实例。ITSM 工单审批通过后调用，自动完成：查询→保护校验→停机→打快照→释放。
+    """一键回收火山云 ECS 实例。ITSM 工单审批通过后调用，自动完成：查询→保护校验→停机→打快照→退订/释放。
 
     Args:
         instance_id: 实例ID
@@ -59,10 +49,10 @@ def volc_recycle_ecs(instance_id: str, account: str, region_id: str = "cn-beijin
                   "instance_status": status, "charge_type": charge_type})
 
     # ---- Step 2: 保护规则校验 ----
-    protected = safe_tools._check_protection(inst_name)
+    protected = check_protection(inst_name)
     if protected:
         steps.append({"step": "protection", "status": "blocked", "reason": f"匹配保护规则: {protected}"})
-        _audit_log("volc_recycle_blocked", {**ctx, "instance_name": inst_name, "reason": f"protected: {protected}"})
+        audit_log("volc_recycle_blocked", {**ctx, "instance_name": inst_name, "reason": f"protected: {protected}"})
         return {"success": False, "blocked": True,
                 "error": f"实例 [{inst_name}] 匹配保护规则 [{protected}]，禁止回收", "steps": steps, **ctx}
     steps.append({"step": "protection", "status": "ok"})
@@ -72,7 +62,7 @@ def volc_recycle_ecs(instance_id: str, account: str, region_id: str = "cn-beijin
         try:
             svc.get("StopInstances", {"Region": region_id, "InstanceIds.1": instance_id})
             steps.append({"step": "stop", "status": "ok"})
-            _audit_log("volc_recycle_stop", {**ctx, "instance_name": inst_name})
+            audit_log("volc_recycle_stop", {**ctx, "instance_name": inst_name})
         except Exception as e:
             steps.append({"step": "stop", "status": "warn", "reason": str(e)})
     else:
@@ -82,23 +72,22 @@ def volc_recycle_ecs(instance_id: str, account: str, region_id: str = "cn-beijin
     snapshot_ids = _create_snapshots(account, region_id, instance_id, inst_name)
     if snapshot_ids:
         steps.append({"step": "snapshot", "status": "ok", "snapshot_ids": snapshot_ids})
-        _audit_log("volc_recycle_snapshot", {**ctx, "instance_name": inst_name, "snapshot_ids": snapshot_ids})
+        audit_log("volc_recycle_snapshot", {**ctx, "instance_name": inst_name, "snapshot_ids": snapshot_ids})
     else:
         steps.append({"step": "snapshot", "status": "skipped", "reason": "无可用磁盘或 SDK 未配置"})
 
     # ---- Step 5: 释放（包年包月→退订，按量→DeleteInstance） ----
-    from . import volc_billing_tools
     if charge_type.lower() in ("prepaid", "subscription", "包年包月"):
         try:
-            refund_result = volc_billing_tools.volc_refund_instance(account, instance_id)
+            refund_result = billing_tools.volc_refund_instance(account, instance_id)
             if refund_result.get("success"):
                 steps.append({"step": "release", "status": "ok", "route": "billing_refund"})
-                _audit_log("volc_recycle_refund", {**ctx, "instance_name": inst_name})
+                audit_log("volc_recycle_refund", {**ctx, "instance_name": inst_name})
                 release_ok = True
             else:
                 steps.append({"step": "release", "status": "error", "route": "billing_refund",
                               "error": refund_result.get("error", "unknown")})
-                _audit_log("volc_recycle_refund_error", {**ctx, "instance_name": inst_name,
+                audit_log("volc_recycle_refund_error", {**ctx, "instance_name": inst_name,
                             "error": refund_result.get("error", "")})
                 release_ok = False
         except Exception as e:
@@ -108,11 +97,11 @@ def volc_recycle_ecs(instance_id: str, account: str, region_id: str = "cn-beijin
         try:
             svc.get("DeleteInstance", {"Region": region_id, "InstanceId": instance_id})
             steps.append({"step": "release", "status": "ok", "route": "sdk_delete"})
-            _audit_log("volc_recycle_release", {**ctx, "instance_name": inst_name})
+            audit_log("volc_recycle_release", {**ctx, "instance_name": inst_name})
             release_ok = True
         except Exception as e:
             steps.append({"step": "release", "status": "error", "route": "sdk_delete", "error": str(e)})
-            _audit_log("volc_recycle_release_error", {**ctx, "instance_name": inst_name, "error": str(e)})
+            audit_log("volc_recycle_release_error", {**ctx, "instance_name": inst_name, "error": str(e)})
             release_ok = False
 
     return {"success": release_ok, "instance_id": instance_id, "instance_name": inst_name,

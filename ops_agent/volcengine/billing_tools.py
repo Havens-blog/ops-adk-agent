@@ -1,18 +1,16 @@
 """
 火山云费用/退订工具
 直接调用火山云 Billing OpenAPI（通过 SDK）
-火山云包年包月退订走 UnsubscribeInstance，和阿里云 BSS 的 RefundInstance 不同
 """
 import json
-import os
-from datetime import datetime
 
 from volcengine.ApiInfo import ApiInfo
 from volcengine.Credentials import Credentials
 from volcengine.base.Service import Service
 from volcengine.ServiceInfo import ServiceInfo
 
-from .volc_query_tools import VOLC_ACCOUNTS
+from ..audit import audit_log
+from ..accounts import SDK_CREDENTIALS
 
 _BILLING_APIS = {
     "UnsubscribeInstance": ApiInfo("POST", "/", {"Action": "UnsubscribeInstance", "Version": "2022-01-01"}, {}, {}),
@@ -21,7 +19,7 @@ _BILLING_APIS = {
 
 
 def _get_billing_service(account: str) -> Service:
-    cfg = VOLC_ACCOUNTS.get(account)
+    cfg = SDK_CREDENTIALS.get(account)
     if not cfg or not cfg["access_key"]:
         raise ValueError(f"火山云账号 {account} 未配置 AK/SK")
     svc_info = ServiceInfo(
@@ -30,15 +28,6 @@ def _get_billing_service(account: str) -> Service:
     )
     svc = Service(svc_info, _BILLING_APIS)
     return svc
-
-
-def _audit_log(action: str, detail: dict):
-    log_dir = os.path.join(os.path.dirname(__file__), "..", "audit_logs")
-    os.makedirs(log_dir, exist_ok=True)
-    entry = {"time": datetime.now().isoformat(), "action": action, **detail}
-    filepath = os.path.join(log_dir, f"audit_{datetime.now():%Y%m%d}.jsonl")
-    with open(filepath, "a", encoding="utf-8") as f:
-        f.write(json.dumps(entry, ensure_ascii=False) + "\n")
 
 
 def volc_refund_instance(account: str, instance_id: str) -> dict:
@@ -58,10 +47,11 @@ def volc_refund_instance(account: str, instance_id: str) -> dict:
         svc = _get_billing_service(account)
         body = json.dumps({"InstanceIDs": [instance_id]})
         resp = svc.post("UnsubscribeInstance", {}, body)
-        _audit_log("volc_refund", {**ctx, "response": str(resp)})
-        return {"success": True, "instance_id": instance_id, "account": account, "message": f"退订请求已发送: {instance_id}", "response": resp}
+        audit_log("volc_refund", {**ctx, "response": str(resp)})
+        return {"success": True, "instance_id": instance_id, "account": account,
+                "message": f"退订请求已发送: {instance_id}", "response": resp}
     except Exception as e:
-        _audit_log("volc_refund_error", {**ctx, "error": str(e)})
+        audit_log("volc_refund_error", {**ctx, "error": str(e)})
         return {"success": False, "error": str(e), **ctx}
 
 
