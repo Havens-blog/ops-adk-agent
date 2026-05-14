@@ -110,6 +110,13 @@ def volc_refund_instance(account: str, instance_id: str = "", instance_ids: list
                 err_str = e.args[0].decode("utf-8") if isinstance(e.args[0], bytes) else str(e)
                 if "product code" in err_str.lower() and code != codes_to_try[-1]:
                     continue
+                if "instancegroup" in err_str.lower() or "place orders together" in err_str.lower():
+                    audit_log("volc_refund_instancegroup", {"account": account, "instance_id": iid, "error": err_str})
+                    results.append({"instance_id": iid, "success": False, "product_code": code,
+                                    "error": f"实例 {iid} 属于计费实例组，无法单独退订。请在火山云控制台（费用中心→退订管理）操作整组退订"})
+                    all_ok = False
+                    refunded = True
+                    break
                 audit_log("volc_refund_error", {"account": account, "instance_id": iid,
                           "product_code": code, "error": err_str})
                 results.append({"instance_id": iid, "success": False, "error": err_str, "product_code": code})
