@@ -30,9 +30,9 @@ def _get_billing_service(account: str) -> Service:
     return svc
 
 
-def _post_call(svc, api: str, body: dict) -> dict:
-    """调用 SDK POST API 并解析 JSON 字符串响应"""
-    resp = svc.post(api, {}, json.dumps(body))
+def _json_call(svc, api: str, body: dict) -> dict:
+    """用 json() 方法调用 SDK API（Content-Type: application/json）"""
+    resp = svc.json(api, {}, json.dumps(body))
     if isinstance(resp, dict):
         return resp
     if isinstance(resp, str):
@@ -55,7 +55,7 @@ def volc_refund_instance(account: str, instance_id: str) -> dict:
     ctx = {"account": account, "instance_id": instance_id}
     try:
         svc = _get_billing_service(account)
-        resp = _post_call(svc, "UnsubscribeInstance", {"InstanceIDs": [instance_id]})
+        resp = _json_call(svc, "UnsubscribeInstance", {"InstanceIDs": [instance_id]})
         audit_log("volc_refund", {**ctx, "response": resp})
 
         metadata = resp.get("ResponseMetadata", {})
@@ -93,7 +93,7 @@ def volc_query_bill(account: str, start_period: str = "", end_period: str = "",
             body["BillPeriod"] = start_period
         if end_period:
             body["BillPeriodEnd"] = end_period
-        resp = _post_call(svc, "ListBillDetail", body)
+        resp = _json_call(svc, "ListBillDetail", body)
         return {"account": account, "data": resp}
     except Exception as e:
         audit_log("volc_query_bill_error", {"account": account, "error": str(e)})
