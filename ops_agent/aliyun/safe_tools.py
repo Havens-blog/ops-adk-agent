@@ -51,6 +51,7 @@ def safe_delete_ecs(account: str, region_id: str, instance_id: str,
             "Force": True,
         }, timeout=35)
     except ValueError as e:
+        audit_log("delete_account_error", {**result, "error": str(e)})
         return {**result, "error": str(e)}
 
     if not del_data:
@@ -83,14 +84,17 @@ def safe_stop_ecs(account: str, region_id: str, instance_ids: list[str], force: 
     Returns:
         操作结果
     """
+    ctx = {"account": account, "region": region_id, "instances": instance_ids}
     try:
         data = MCPManager.call(account, "OOS_StopInstances",
                                {"RegionId": region_id, "InstanceIds": instance_ids, "ForeceStop": force})
     except ValueError as e:
+        audit_log("stop_instances_error", {**ctx, "error": str(e)})
         return {"error": str(e)}
-    audit_log("stop_instances", {"account": account, "region": region_id, "instances": instance_ids})
     if not data:
+        audit_log("stop_instances_no_response", ctx)
         return {"error": "操作无响应"}
+    audit_log("stop_instances", ctx)
     return {"success": True, "message": f"已发送停止指令: {instance_ids}"}
 
 
@@ -105,14 +109,17 @@ def safe_start_ecs(account: str, region_id: str, instance_ids: list[str]) -> dic
     Returns:
         操作结果
     """
+    ctx = {"account": account, "region": region_id, "instances": instance_ids}
     try:
         data = MCPManager.call(account, "OOS_StartInstances",
                                {"RegionId": region_id, "InstanceIds": instance_ids})
     except ValueError as e:
+        audit_log("start_instances_error", {**ctx, "error": str(e)})
         return {"error": str(e)}
-    audit_log("start_instances", {"account": account, "region": region_id, "instances": instance_ids})
     if not data:
+        audit_log("start_instances_no_response", ctx)
         return {"error": "操作无响应"}
+    audit_log("start_instances", ctx)
     return {"success": True, "message": f"已发送启动指令: {instance_ids}"}
 
 
@@ -128,12 +135,15 @@ def safe_reboot_ecs(account: str, region_id: str, instance_ids: list[str], force
     Returns:
         操作结果
     """
+    ctx = {"account": account, "region": region_id, "instances": instance_ids}
     try:
         data = MCPManager.call(account, "OOS_RebootInstances",
                                {"RegionId": region_id, "InstanceIds": instance_ids, "ForeceStop": force})
     except ValueError as e:
+        audit_log("reboot_instances_error", {**ctx, "error": str(e)})
         return {"error": str(e)}
-    audit_log("reboot_instances", {"account": account, "region": region_id, "instances": instance_ids})
     if not data:
+        audit_log("reboot_instances_no_response", ctx)
         return {"error": "操作无响应"}
+    audit_log("reboot_instances", ctx)
     return {"success": True, "message": f"已发送重启指令: {instance_ids}"}

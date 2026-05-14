@@ -80,4 +80,5 @@ def volc_query_bill(account: str, start_period: str = "", end_period: str = "",
         resp = svc.post("ListBillDetail", {}, body)
         return {"account": account, "data": resp}
     except Exception as e:
+        audit_log("volc_query_bill_error", {"account": account, "error": str(e)})
         return {"error": str(e), "account": account}

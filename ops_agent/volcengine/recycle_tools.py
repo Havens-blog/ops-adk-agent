@@ -35,9 +35,11 @@ def volc_recycle_ecs(instance_id: str, account: str, region_id: str = "cn-beijin
         result = resp.get("Result", {})
         instances = _fmt_volc_instances(result)
     except Exception as e:
+        audit_log("volc_recycle_query_error", {**ctx, "error": str(e)})
         return {"success": False, "error": str(e), "steps": steps, **ctx}
 
     if not instances:
+        audit_log("volc_recycle_not_found", ctx)
         steps.append({"step": "query", "status": "error", "reason": f"实例 {instance_id} 不存在"})
         return {"success": False, "error": f"实例 {instance_id} 不存在", "steps": steps, **ctx}
 
@@ -65,6 +67,7 @@ def volc_recycle_ecs(instance_id: str, account: str, region_id: str = "cn-beijin
             audit_log("volc_recycle_stop", {**ctx, "instance_name": inst_name})
         except Exception as e:
             steps.append({"step": "stop", "status": "warn", "reason": str(e)})
+            audit_log("volc_recycle_stop_warn", {**ctx, "instance_name": inst_name, "error": str(e)})
     else:
         steps.append({"step": "stop", "status": "skipped", "reason": f"当前状态: {status}"})
 
@@ -75,6 +78,7 @@ def volc_recycle_ecs(instance_id: str, account: str, region_id: str = "cn-beijin
         audit_log("volc_recycle_snapshot", {**ctx, "instance_name": inst_name, "snapshot_ids": snapshot_ids})
     else:
         steps.append({"step": "snapshot", "status": "skipped", "reason": "无可用磁盘或 SDK 未配置"})
+        audit_log("volc_recycle_snapshot_skipped", {**ctx, "instance_name": inst_name})
 
     # ---- Step 5: 释放（包年包月→退订，按量→DeleteInstance） ----
     if charge_type.lower() in ("prepaid", "subscription", "包年包月"):
@@ -92,6 +96,7 @@ def volc_recycle_ecs(instance_id: str, account: str, region_id: str = "cn-beijin
                 release_ok = False
         except Exception as e:
             steps.append({"step": "release", "status": "error", "route": "billing_refund", "error": str(e)})
+            audit_log("volc_recycle_refund_error", {**ctx, "instance_name": inst_name, "error": str(e)})
             release_ok = False
     else:
         try:
@@ -118,7 +123,10 @@ def _create_snapshots(account: str, region_id: str, instance_id: str, instance_n
         })
         result = vol_resp.get("Result", {})
         volumes = result.get("Volumes", [])
-    except Exception:
+    except Exception as e:
+        audit_log("volc_recycle_describe_volumes_error", {
+            "account": account, "instance_id": instance_id, "error": str(e)
+        })
         return []
 
     if not volumes:
@@ -140,7 +148,9 @@ def _create_snapshots(account: str, region_id: str, instance_id: str, instance_n
             snap_id = snap_result.get("SnapshotId", "")
             if snap_id:
                 snapshot_ids.append(snap_id)
-        except Exception:
-            pass
+        except Exception as e:
+            audit_log("volc_recycle_create_snapshot_error", {
+                "account": account, "instance_id": instance_id, "volume_id": vol_id, "error": str(e)
+            })
 
     return snapshot_ids

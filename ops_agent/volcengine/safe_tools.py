@@ -18,15 +18,17 @@ def volc_stop_instances(account: str, region_id: str, instance_ids: list[str]) -
     Returns:
         操作结果
     """
+    ctx = {"account": account, "region": region_id, "instances": instance_ids}
     try:
         svc = _get_ecs_service(account, region_id)
         args = {"Region": region_id}
         for idx, iid in enumerate(instance_ids, 1):
             args[f"InstanceIds.{idx}"] = iid
         resp = _call(svc, "StopInstances", args)
-        audit_log("volc_stop", {"account": account, "region": region_id, "instances": instance_ids})
+        audit_log("volc_stop", {**ctx, "response": resp})
         return {"success": True, "message": f"已发送停止指令: {instance_ids}", "response": resp}
     except Exception as e:
+        audit_log("volc_stop_error", {**ctx, "error": str(e)})
         return {"error": str(e)}
 
 
@@ -41,15 +43,17 @@ def volc_start_instances(account: str, region_id: str, instance_ids: list[str]) 
     Returns:
         操作结果
     """
+    ctx = {"account": account, "region": region_id, "instances": instance_ids}
     try:
         svc = _get_ecs_service(account, region_id)
         args = {"Region": region_id}
         for idx, iid in enumerate(instance_ids, 1):
             args[f"InstanceIds.{idx}"] = iid
         resp = _call(svc, "StartInstances", args)
-        audit_log("volc_start", {"account": account, "region": region_id, "instances": instance_ids})
+        audit_log("volc_start", {**ctx, "response": resp})
         return {"success": True, "message": f"已发送启动指令: {instance_ids}", "response": resp}
     except Exception as e:
+        audit_log("volc_start_error", {**ctx, "error": str(e)})
         return {"error": str(e)}
 
 
@@ -64,15 +68,17 @@ def volc_reboot_instances(account: str, region_id: str, instance_ids: list[str])
     Returns:
         操作结果
     """
+    ctx = {"account": account, "region": region_id, "instances": instance_ids}
     try:
         svc = _get_ecs_service(account, region_id)
         args = {"Region": region_id}
         for idx, iid in enumerate(instance_ids, 1):
             args[f"InstanceIds.{idx}"] = iid
         resp = _call(svc, "RebootInstances", args)
-        audit_log("volc_reboot", {"account": account, "region": region_id, "instances": instance_ids})
+        audit_log("volc_reboot", {**ctx, "response": resp})
         return {"success": True, "message": f"已发送重启指令: {instance_ids}", "response": resp}
     except Exception as e:
+        audit_log("volc_reboot_error", {**ctx, "error": str(e)})
         return {"error": str(e)}
 
 
@@ -101,6 +107,7 @@ def volc_delete_instance(account: str, region_id: str, instance_id: str,
             return {**result, "blocked": True, "error": f"实例 [{instance_name}] 匹配保护规则 [{protected}]，禁止释放"}
 
     if charge_type.lower() in ("prepaid", "subscription", "包年包月"):
+        audit_log("volc_delete_refund_route", result)
         refund_result = billing_tools.volc_refund_instance(account, instance_id)
         return {**result, "route": "refund", **refund_result}
 
@@ -109,7 +116,7 @@ def volc_delete_instance(account: str, region_id: str, instance_id: str,
         resp = _call(svc, "DeleteInstance", {
             "Region": region_id, "InstanceId": instance_id,
         })
-        audit_log("volc_delete", result)
+        audit_log("volc_delete", {**result, "response": resp})
         return {**result, "route": "delete", "success": True,
                 "message": f"实例 {instance_name or instance_id} 已释放", "response": resp}
     except Exception as e:
