@@ -96,8 +96,7 @@ def volc_query_ecs(account: str, region_id: str = "cn-beijing", max_total: int =
             result = resp.get("Result", {})
             instances = _fmt_volc_instances(result)
             all_instances.extend(instances)
-            total = result.get("TotalCount", 0)
-            if not instances or len(all_instances) >= total:
+            if not instances or len(instances) < page_size:
                 break
             page += 1
         if not all_instances:
