@@ -20,14 +20,9 @@ MCP_ACCOUNTS = {
         "mcp_url": os.environ.get("ALIYUN_MCP_URL", "https://dashscope.aliyuncs.com/api/v1/mcps/alibaba-cloud-ops"),
         "api_key": os.environ.get("DASHSCOPE_API_KEY_PRODUCTION", ""),
     },
-    "volc_production": {
-        "name": "火山云生产",
-        "aliases": ["volc", "火山云", "火山云生产", "volc_production"],
-        "provider": "volc",
-        "mcp_url": os.environ.get("VOLC_MCP_URL", ""),
-        "api_key": os.environ.get("DASHSCOPE_API_KEY_VOLC", ""),
-    },
 }
+
+# 火山云不走 MCP，仅 SDK 直调（见下方 SDK_CREDENTIALS）
 
 # SDK 凭证（直接调用云 API 用，不走 MCP）
 SDK_CREDENTIALS = {
