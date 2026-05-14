@@ -14,6 +14,9 @@ from . import safe_tools
 from . import billing_tools
 from . import recycle_tools
 from . import volc_query_tools
+from . import volc_safe_tools
+from . import volc_billing_tools
+from . import volc_recycle_tools
 
 # 加载环境变量
 load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
@@ -62,6 +65,19 @@ root_agent = Agent(
 - volc_query_ecs(account, region_id, max_total=500): 查询火山云 ECS 实例（自动分页）
 - volc_query_ecs_by_id(account, instance_id, region_id): 根据ID查询火山云实例
 - volc_describe_regions(account): 查询火山云支持的地域
+
+### 火山云操作类（需用户确认）
+- volc_stop_instances(account, region_id, instance_ids): 停止火山云 ECS 实例
+- volc_start_instances(account, region_id, instance_ids): 启动火山云 ECS 实例
+- volc_reboot_instances(account, region_id, instance_ids): 重启火山云 ECS 实例
+- volc_delete_instance(account, region_id, instance_id, instance_name, charge_type): 释放/退订火山云 ECS。charge_type 为 PrePaid 时走退订，PostPaid 时走直接释放
+
+### 火山云费用类
+- volc_refund_instance(account, instance_id): 退订火山云包年包月实例
+- volc_query_bill(account, start_period, end_period): 查询火山云账单明细
+
+### 火山云回收类（ITSM 触发，一键执行）
+- volc_recycle_ecs(instance_id, account, region_id, ticket_id?): 一键回收火山云 ECS，自动完成查询→保护校验→停机→打快照→退订/释放
 
 ### 费用/退订类（需用户确认）
 - refund_instance(account, instance_id, product_code): 退订包年包月实例
@@ -124,5 +140,15 @@ root_agent = Agent(
         volc_query_tools.volc_query_ecs,
         volc_query_tools.volc_query_ecs_by_id,
         volc_query_tools.volc_describe_regions,
+        # 火山云操作类（带安全管控）
+        volc_safe_tools.volc_stop_instances,
+        volc_safe_tools.volc_start_instances,
+        volc_safe_tools.volc_reboot_instances,
+        volc_safe_tools.volc_delete_instance,
+        # 火山云费用/退订类
+        volc_billing_tools.volc_refund_instance,
+        volc_billing_tools.volc_query_bill,
+        # 火山云回收类（ITSM）
+        volc_recycle_tools.volc_recycle_ecs,
     ],
 )

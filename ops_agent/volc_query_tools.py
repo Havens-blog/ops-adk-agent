@@ -22,6 +22,12 @@ VOLC_ACCOUNTS = {
 _ECS_APIS = {
     "DescribeInstances": ApiInfo("GET", "/", {"Action": "DescribeInstances", "Version": "2020-04-01"}, {}, {}),
     "DescribeRegions": ApiInfo("GET", "/", {"Action": "DescribeRegions", "Version": "2020-04-01"}, {}, {}),
+    "StopInstances": ApiInfo("GET", "/", {"Action": "StopInstances", "Version": "2020-04-01"}, {}, {}),
+    "StartInstances": ApiInfo("GET", "/", {"Action": "StartInstances", "Version": "2020-04-01"}, {}, {}),
+    "RebootInstances": ApiInfo("GET", "/", {"Action": "RebootInstances", "Version": "2020-04-01"}, {}, {}),
+    "DeleteInstance": ApiInfo("GET", "/", {"Action": "DeleteInstance", "Version": "2020-04-01"}, {}, {}),
+    "DescribeVolumes": ApiInfo("GET", "/", {"Action": "DescribeVolumes", "Version": "2020-04-01"}, {}, {}),
+    "CreateSnapshot": ApiInfo("GET", "/", {"Action": "CreateSnapshot", "Version": "2020-04-01"}, {}, {}),
 }
 
 
