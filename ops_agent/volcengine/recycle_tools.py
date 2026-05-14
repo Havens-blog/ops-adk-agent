@@ -59,7 +59,7 @@ def volc_recycle_ecs(instance_id: str, account: str, region_id: str = "cn-beijin
                 "error": f"实例 [{inst_name}] 匹配保护规则 [{protected}]，禁止回收", "steps": steps, **ctx}
     steps.append({"step": "protection", "status": "ok"})
 
-    # ---- Step 3: 停机（如果 Running） ----
+    # ---- Step 3: 停机（数据安全，非退订前置条件） ----
     if status.upper() == "RUNNING":
         try:
             _call(svc, "StopInstances", {"Region": region_id, "InstanceIds.1": instance_id})
