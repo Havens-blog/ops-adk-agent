@@ -35,12 +35,23 @@ def _json_call(svc, api: str, body: dict) -> dict:
     resp = svc.json(api, {}, json.dumps(body))
     if isinstance(resp, dict):
         return resp
+    if isinstance(resp, bytes):
+        return json.loads(resp.decode("utf-8"))
     if isinstance(resp, str):
         return json.loads(resp)
     return {}
 
 
-def volc_refund_instance(account: str, instance_id: str) -> dict:
+def _parse_api_error(resp: dict) -> str | None:
+    """从火山云 API 响应中提取错误信息"""
+    metadata = resp.get("ResponseMetadata", {})
+    error = metadata.get("Error", {})
+    if error:
+        return error.get("Message", str(error))
+    return None
+
+
+def volc_refund_instance(account: str, instance_id: str, product_code: str = "ecs") -> dict:
     """退订火山云包年包月 ECS 实例。
 
     调用费用中心 UnsubscribeInstance 接口。仅支持符合退订规则的包年包月实例。
@@ -48,6 +59,7 @@ def volc_refund_instance(account: str, instance_id: str) -> dict:
     Args:
         account: 火山云账号名称，如 volc_production
         instance_id: 实例ID
+        product_code: 产品代码，默认 ecs
 
     Returns:
         退订结果
@@ -55,21 +67,23 @@ def volc_refund_instance(account: str, instance_id: str) -> dict:
     ctx = {"account": account, "instance_id": instance_id}
     try:
         svc = _get_billing_service(account)
-        resp = _json_call(svc, "UnsubscribeInstance", {"InstanceIDs": [instance_id]})
+        resp = _json_call(svc, "UnsubscribeInstance", {
+            "InstanceIDs": [instance_id],
+            "ProductCode": product_code,
+        })
         audit_log("volc_refund", {**ctx, "response": resp})
 
-        metadata = resp.get("ResponseMetadata", {})
-        error = metadata.get("Error", {})
-        if error:
-            err_msg = error.get("Message", str(error))
+        err_msg = _parse_api_error(resp)
+        if err_msg:
             audit_log("volc_refund_api_error", {**ctx, "error": err_msg})
             return {"success": False, "error": f"退订失败: {err_msg}", **ctx}
 
         return {"success": True, "instance_id": instance_id, "account": account,
                 "message": f"退订请求已发送: {instance_id}", "response": resp}
     except Exception as e:
-        audit_log("volc_refund_error", {**ctx, "error": str(e)})
-        return {"success": False, "error": str(e), **ctx}
+        err_str = e.args[0].decode("utf-8") if isinstance(e.args[0], bytes) else str(e)
+        audit_log("volc_refund_error", {**ctx, "error": err_str})
+        return {"success": False, "error": err_str, **ctx}
 
 
 def volc_query_bill(account: str, start_period: str = "", end_period: str = "",
@@ -96,5 +110,6 @@ def volc_query_bill(account: str, start_period: str = "", end_period: str = "",
         resp = _json_call(svc, "ListBillDetail", body)
         return {"account": account, "data": resp}
     except Exception as e:
-        audit_log("volc_query_bill_error", {"account": account, "error": str(e)})
-        return {"error": str(e), "account": account}
+        err_str = e.args[0].decode("utf-8") if isinstance(e.args[0], bytes) else str(e)
+        audit_log("volc_query_bill_error", {"account": account, "error": err_str})
+        return {"error": err_str, "account": account}
